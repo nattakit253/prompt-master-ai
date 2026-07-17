@@ -1,7 +1,7 @@
 import json
 import time
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -13,7 +13,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# 🎨 เพิ่ม CSS ตกแต่ง พร้อมแก้ปัญหา Font Emoji ในแต่ละระบบปฏิบัติการ
+# 🎨 CSS ตกแต่งสไตล์เรียบหรู
 st.markdown("""
     <style>
     .main-title {
@@ -73,7 +73,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ----------------- 📦 ระบบจัดการโควตาข้อมูลจริง (File-based DB) -----------------
+# ----------------- 📦 ระบบจัดการโควตาข้อมูลจริง -----------------
 DB_FILE = "quota_db.json"
 MAX_QUOTA_PER_DAY = 150  
 
@@ -106,9 +106,16 @@ quota_data = load_quota()
 used_today = quota_data["used_today"]
 remaining_quota = max(0, MAX_QUOTA_PER_DAY - used_today)
 
-# ----------------- 🖥️ หน้าตาเว็บหลัก -----------------
+# คำนวณเวลาที่สิทธิ์โควตารายวันของ Google (เวลา 07:00 น.) จะรีเซ็ตขึ้นมาใหม่
+now = datetime.now()
+reset_time = datetime(now.year, now.month, now.day, 7, 0, 0)
+if now >= reset_time:
+    reset_time += timedelta(days=1)
+time_to_reset = reset_time - now
+hours, remainder = divmod(time_to_reset.seconds, 3600)
+minutes, _ = divmod(remainder, 60)
 
-# ปรับแก้การ Render ไอคอนหัวข้อใหญ่ ครอบด้วยคลาสพิเศษป้องกันรูปเพี้ยน
+# ----------------- 🖥️ หน้าตาเว็บหลัก -----------------
 st.markdown("<div class='main-title'><span class='emoji-fix'>🧙‍♂️</span> Prompt Master</div>", unsafe_allow_html=True)
 st.markdown("<div class='subtitle'>แปลงข้อความธรรมดา ให้เป็นคำตอบจากผู้เชี่ยวชาญระดับมืออาชีพในพริบตา</div>", unsafe_allow_html=True)
 
@@ -118,6 +125,9 @@ st.progress(
     progress_percentage, 
     text=f"🔋 โควตาฟรีที่เหลือของระบบวันนี้: {remaining_quota} ครั้ง (ใช้ไปแล้ว {used_today} จากทั้งหมด {MAX_QUOTA_PER_DAY} ครั้ง)"
 )
+
+# กล่องข้อมูลแสดงเวลารีเซ็ตจริงของ Google ให้เพื่อน ๆ เห็นชัดเจน
+st.info(f"📅 **ข้อมูลโควตาฟรีฝั่ง Google API:** หากระบบโดนจำกัดสิทธิ์ชั่วคราว โควตาหลักจะทำการรีเซ็ตใหม่ทั้งหมดในอีกประมาณ **{hours} ชั่วโมง {minutes} นาที** (ตอนเวลา 07:00 น. ของวันพรุ่งนี้)")
 
 st.write("")
 
@@ -139,9 +149,7 @@ if st.button("🚀 รันระบบแปลงร่าง AI และห
         st.error("⚠️ กรุณาพิมพ์ข้อความอธิบายความต้องการของคุณก่อนนะครับ")
     elif remaining_quota <= 0:
         st.error(f"🚨 ขออภัยด้วยครับ! โควตาการใช้งานของวันนี้เต็มเรียบร้อยแล้ว ({MAX_QUOTA_PER_DAY}/{MAX_QUOTA_PER_DAY} ครั้ง)")
-        st.info("💡 ระบบจะรีเซ็ตอัตโนมัติเมื่อขึ้นวันใหม่ ตอนเที่ยงคืนตรงครับ")
     else:
-        # ⚡ ดันความเสถียรสายฟรี: สลับเอา gemini-1.5-flash ขึ้นเป็นเบอร์ 1 เพื่อเลี่ยงปัญหาชนโควตาสาธารณะ
         models_to_try = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash']
         client = genai.Client(api_key=api_key_clean)
         selected_model = None
@@ -155,10 +163,9 @@ if st.button("🚀 รันระบบแปลงร่าง AI และห
                 except Exception:
                     continue
         
-        # กรณีโควตาสายฟรีฝั่ง Google เต็มพร้อมกันทุกตัวจริงๆ
         if not selected_model:
             st.error("❌ ขออภัยด้วยครับ! ขณะนี้ตัวเชื่อมต่อฟรีของโมเดลทั้งหมดเต็มชั่วคราวเนื่องจากมีการใช้งานหนาแน่น")
-            st.info("💡 ระบบกำลังทำการเปิดคูลดาวน์สิทธิ์ให้โดยอัตโนมัติ รบกวนรอสักครู่และห้ามปิดหน้าต่างนี้...")
+            st.info("💡 ระบบกำลังทำการเปิดคูลดาวน์สิทธิ์ให้อัตโนมัติ รบกวนรอสักครู่และห้ามปิดหน้าต่างนี้...")
             
             countdown_placeholder = st.empty()
             for seconds_left in range(30, -1, -1):
