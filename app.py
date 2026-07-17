@@ -1,4 +1,5 @@
 import json
+import time
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -14,7 +15,7 @@ st.title("🧙‍♂️ Prompt Master AI (Free Tier Only)")
 st.write("เปลี่ยนข้อความธรรมดาของคุณ ให้กลายเป็นคำตอบระดับมืออาชีพด้วยระบบ AI Expert Router")
 st.write("---")
 
-# 2. ดึง API Key
+# 2. ดึง API Key จาก Secrets
 raw_api_key = None
 if "GEMINI_API_KEY" in st.secrets:
     raw_api_key = st.secrets["GEMINI_API_KEY"]
@@ -33,42 +34,54 @@ if st.button("🚀 รันระบบแปลงร่าง AI"):
     elif not user_input.strip():
         st.error("⚠️ กรุณาพิมพ์ข้อความเพื่อถาม AI")
     else:
-        # รวมรายชื่อโมเดลฟรีทั้งหมดของ Google เพื่อสลับใช้กรณีตัวใดตัวหนึ่งโควตาเต็ม (Rate Limit 429)
-        # ไล่จากตัวแรงสุดใหม่ล่าสุด ไปจนถึงตัวเสถียรรุ่นก่อนหน้า
+        # รายชื่อโมเดลฟรีทั้งหมดของ Google
         models_to_try = [
             'gemini-2.5-flash', 
             'gemini-2.0-flash', 
             'gemini-1.5-flash',
-            'gemini-1.5-pro'      # ตัวฉลาดพิเศษ (อาจจะช้ากว่าแต่เอาไว้สำรองยามคับขันได้ดี)
+            'gemini-1.5-pro'
         ]
         
         client = genai.Client(api_key=api_key)
-        
         selected_model = None
         error_logs = []
         
         with st.spinner("🧠 กำลังค้นหาช่องทางและเชื่อมต่อสมองกล AI..."):
             for model_name in models_to_try:
                 try:
-                    # ทดสอบยิงเชื่อมต่อด้วยคำง่าย ๆ เพื่อเช็กว่าโมเดลนี้ว่างและพร้อมทำงานหรือไม่
                     client.models.generate_content(
                         model=model_name,
                         contents="Hi"
                     )
                     selected_model = model_name
-                    break  # เจอโมเดลที่ใช้งานได้แล้ว ให้หยุดลูปและเลือกใช้ตัวนี้ทันที!
+                    break
                 except Exception as e:
-                    # เก็บ Log ข้อผิดพลาดไว้ดูหากทุกตัวใช้ไม่ได้จริง ๆ
                     error_logs.append(f"- {model_name}: {str(e)}")
                     continue
         
-        # กรณีโชคร้ายโควตาเต็มทุกตัวจริง ๆ (เช่น มีคนระดมกดพร้อมกันจำนวนมากในนาทีนั้น)
+        # กรณีโชคร้ายโควตาเต็มทุกตัวจริง ๆ (ชน Rate Limit 429)
         if not selected_model:
-            st.error("❌ ขออภัยด้วยครับ! ขณะนี้โควตาฟรีของทุกโมเดลในบัญชีของคุณเต็มชั่วคราว")
-            st.info("💡 **แนะนำสำหรับคุณ Bank และเพื่อน ๆ:** เนื่องจากใช้สิทธิ์ฟรี (Free Tier) รบกวนเว้นระยะเวลา 1-2 นาที แล้วลองกดใหม่อีกครั้งนะครับ ระบบจะรีเซ็ตโควตาให้ใหม่โดยอัตโนมัติครับ")
-            with st.expander("🔍 ดูรายละเอียดข้อผิดพลาดทางเทคนิค"):
-                for log in error_logs:
-                    st.write(log)
+            st.error("❌ ขออภัยด้วยครับ! ขณะนี้โควตาฟรีของทุกโมเดลในบัญชีของคุณเต็มชั่วคราวเนื่องจากมีการใช้งานหนาแน่น")
+            st.info("💡 ระบบกำลังทำการจำกัดเวลาคูลดาวน์เพื่อรีเซ็ตสิทธิ์ฟรีให้คุณอัตโนมัติ กรุณารอสักครู่...")
+            
+            # --- ⏳ ระบบนับเวลาถอยหลังและรีเฟรชออโต้ ---
+            countdown_placeholder = st.empty()
+            
+            # ตั้งเวลานับถอยหลัง 30 วินาที (ตามที่ Google แจ้งให้ Retry)
+            for seconds_left in range(30, -1, -1):
+                if seconds_left > 0:
+                    countdown_placeholder.metric(
+                        label="⏳ ระบบจะพร้อมใช้งานและรีเฟรชหน้าเว็บใหม่ในอีก", 
+                        value=f"{seconds_left} วินาที"
+                    )
+                    time.sleep(1)
+                else:
+                    countdown_placeholder.success("🔄 กำลังรีเฟรชหน้าเว็บใหม่อัตโนมัติ...")
+                    time.sleep(1)
+            
+            # สั่งรีเฟรชหน้าเว็บอัตโนมัติ
+            st.rerun()
+            
         else:
             with st.spinner(f"🧙‍♂️ ใช้โมเดล {selected_model} กำลังวิเคราะห์และแปลงร่างเป็นผู้เชี่ยวชาญ..."):
                 try:
