@@ -1,5 +1,7 @@
 import json
 import time
+import os
+from datetime import datetime
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -11,28 +13,95 @@ st.set_page_config(
     layout="wide"
 )
 
+# ----------------- 📦 ระบบฐานข้อมูลโควตาขนาดเล็ก (File-based DB) -----------------
+DB_FILE = "quota_db.json"
+
+def load_quota():
+    """โหลดข้อมูลโควตาและวันที่อัปเดตล่าสุดจากไฟล์"""
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    default_data = {"date": today_str, "used_today": 0}
+    
+    if not os.path.exists(DB_FILE):
+        return default_data
+    
+    try:
+        with open(DB_FILE, "r") as f:
+            data = json.load(f)
+            # ถ้าระบบข้ามวันใหม่แล้ว ให้รีเซ็ตจำนวนการใช้งานกลับเป็น 0 อัตโนมัติ
+            if data.get("date") != today_str:
+                return default_data
+            return data
+    except Exception:
+        return default_data
+
+def save_quota(used_today):
+    """บันทึกข้อมูลการใช้งานปัจจุบันลงไฟล์"""
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    data = {"date": today_str, "used_today": used_today}
+    try:
+        with open(DB_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception as e:
+        st.error(f"ไม่สามารถบันทึกข้อมูลโควตาได้: {e}")
+
+# โหลดข้อมูลโควตาเริ่มต้น
+quota_data = load_quota()
+used_today = quota_data["used_today"]
+
+# ----------------- ⚙️ SIDEBAR CONFIG -----------------
+with st.sidebar:
+    st.image("https://img.icons8.com/fluent/96/artificial-intelligence.png", width=60)
+    st.header("⚙️ แผงควบคุมระบบ (Admin)")
+    
+    # ดึง API Key จาก Secrets หลังบ้าน
+    raw_api_key = st.secrets.get("GEMINI_API_KEY", "")
+    
+    # 🎛️ สไลเดอร์ปรับจำกัดโควตาต่อวัน (คุณ Bank ปรับเพิ่มลดได้เองเลย)
+    max_quota_allowed = st.slider(
+        "🎯 จำกัดจำนวนการใช้งานของเว็บนี้ต่อวัน:", 
+        min_value=10, 
+        max_value=500, 
+        value=100,  # ค่าเริ่มต้นให้ใช้ได้วันละ 100 ครั้ง
+        step=10,
+        help="ตั้งค่าจำนวนครั้งสูงสุดที่อนุญาตให้คนทั่วไปเข้ามากดใช้งานเว็บนี้ร่วมกันในแต่ละวัน"
+    )
+    
+    # คำนวณจำนวนโควตาที่เหลืออยู่จริง
+    remaining_quota = max(0, max_quota_allowed - used_today)
+    
+    st.write("---")
+    st.markdown("### 📊 สถานะการใช้งานวันนี้")
+    st.metric(label="✅ ใช้ไปแล้ววันนี้", value=f"{used_today} ครั้ง")
+    st.metric(label="🔑 โควตาที่เหลืออยู่", value=f"{remaining_quota} ครั้ง")
+    
+    if st.button("🔄 รีเซ็ตการใช้งานวันนี้กลับเป็น 0"):
+        save_quota(0)
+        st.success("รีเซ็ตโควตาเรียบร้อย!")
+        time.sleep(1)
+        st.rerun()
+
+# ----------------- MAIN INTERFACE -----------------
 st.title("🧙‍♂️ Prompt Master AI (Free Tier Only)")
 st.write("เปลี่ยนข้อความธรรมดาของคุณ ให้กลายเป็นคำตอบระดับมืออาชีพด้วยระบบ AI Expert Router")
 st.write("---")
 
-# 2. ดึง API Key จาก Secrets
-raw_api_key = None
-if "GEMINI_API_KEY" in st.secrets:
-    raw_api_key = st.secrets["GEMINI_API_KEY"]
-else:
-    raw_api_key = st.sidebar.text_input("ใส่ Google Gemini API Key สำหรับเทสบนเครื่อง:", type="password")
-
-api_key = None
-if raw_api_key:
-    api_key = raw_api_key.strip().replace('"', '').replace("'", "")
+# แสดงแถบพลังโควตาหน้าจอหลักให้คนใช้งานเห็นแบบสวยงาม
+progress_percentage = min(1.0, used_today / max_quota_allowed)
+st.progress(progress_percentage, text=f"📊 โควตาของระบบวันนี้: ใช้ไปแล้ว {used_today} / {max_quota_allowed} ครั้ง (เหลือให้ใช้งานได้อีก {remaining_quota} ครั้ง)")
 
 user_input = st.text_area("✍️ พิมพ์สิ่งที่คุณต้องการถามหรืออยากให้ AI ช่วย (เช่น: อยากปลูกผักชีในบ้าน):")
 
 if st.button("🚀 รันระบบแปลงร่าง AI"):
-    if not api_key:
+    api_key_clean = raw_api_key.strip().replace('"', '').replace("'", "") if raw_api_key else None
+    
+    if not api_key_clean:
         st.warning("⚠️ ไม่พบ API Key กรุณาตั้งค่าระบบหลังบ้านก่อนใช้งาน")
     elif not user_input.strip():
         st.error("⚠️ กรุณาพิมพ์ข้อความเพื่อถาม AI")
+    # 🚫 ดักตรวจเช็กก่อนว่าโควตาของวันนี้เต็มหรือยัง
+    elif remaining_quota <= 0:
+        st.error(f"🚨 ขออภัยด้วยครับ! โควตาการใช้งานของเว็บไซต์ที่แอดมินจำกัดไว้ ({max_quota_allowed} ครั้ง/วัน) เต็มเรียบร้อยแล้วในวันนี้")
+        st.info("💡 แอดมินสามารถปรับเพิ่มโควตาที่แผงควบคุมด้านซ้าย หรือกรุณากลับมาใช้งานใหม่อีกครั้งในวันพรุ่งนี้ครับ ระบบจะรีเซ็ตให้ใหม่ตอนเที่ยงคืน")
     else:
         # รายชื่อโมเดลฟรีทั้งหมดของ Google
         models_to_try = [
@@ -42,7 +111,7 @@ if st.button("🚀 รันระบบแปลงร่าง AI"):
             'gemini-1.5-pro'
         ]
         
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(api_key=api_key_clean)
         selected_model = None
         error_logs = []
         
@@ -59,15 +128,12 @@ if st.button("🚀 รันระบบแปลงร่าง AI"):
                     error_logs.append(f"- {model_name}: {str(e)}")
                     continue
         
-        # กรณีโชคร้ายโควตาเต็มทุกตัวจริง ๆ (ชน Rate Limit 429)
+        # กรณีสิทธิ์ฟรีฝั่ง API โดนล็อกชั่วคราว (Rate Limit 429)
         if not selected_model:
             st.error("❌ ขออภัยด้วยครับ! ขณะนี้โควตาฟรีของทุกโมเดลในบัญชีของคุณเต็มชั่วคราวเนื่องจากมีการใช้งานหนาแน่น")
             st.info("💡 ระบบกำลังทำการจำกัดเวลาคูลดาวน์เพื่อรีเซ็ตสิทธิ์ฟรีให้คุณอัตโนมัติ กรุณารอสักครู่...")
             
-            # --- ⏳ ระบบนับเวลาถอยหลังและรีเฟรชออโต้ ---
             countdown_placeholder = st.empty()
-            
-            # ตั้งเวลานับถอยหลัง 30 วินาที (ตามที่ Google แจ้งให้ Retry)
             for seconds_left in range(30, -1, -1):
                 if seconds_left > 0:
                     countdown_placeholder.metric(
@@ -79,7 +145,6 @@ if st.button("🚀 รันระบบแปลงร่าง AI"):
                     countdown_placeholder.success("🔄 กำลังรีเฟรชหน้าเว็บใหม่อัตโนมัติ...")
                     time.sleep(1)
             
-            # สั่งรีเฟรชหน้าเว็บอัตโนมัติ
             st.rerun()
             
         else:
@@ -130,6 +195,9 @@ if st.button("🚀 รันระบบแปลงร่าง AI"):
                         
                         st.subheader("🎯 คำตอบสุดท้ายจาก AI ผู้เชี่ยวชาญ:")
                         st.markdown(final_response.text)
+                        
+                        # 📈 เมื่อตอบสำเร็จเรียบร้อย ให้บวกยอดการใช้งานจริงสะสมเพิ่มขึ้น 1 ครั้ง และเซฟลงฐานข้อมูลไฟล์
+                        save_quota(used_today + 1)
                         
                 except Exception as e:
                     st.error(f"เกิดข้อผิดพลาดระหว่างการทำงานของระบบ: {e}")
