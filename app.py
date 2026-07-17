@@ -1,0 +1,101 @@
+import json
+import streamlit as st
+from google import genai
+from google.genai import types
+
+# 1. ตั้งค่าหน้าจอหน้าเว็บ
+st.set_page_config(
+    page_title="Prompt Master AI",
+    page_icon="🧙‍♂️",
+    layout="wide"
+)
+
+st.title("🧙‍♂️ Prompt Master AI")
+st.write("เปลี่ยนข้อความธรรมดาของคุณ ให้กลายเป็นคำตอบระดับมืออาชีพด้วยระบบ AI Expert Router")
+st.write("---")
+
+# 2. ค้นหา API Key จากระบบ Secrets ของคลาวด์อัตโนมัติ
+# (ถ้ากดยิงรันในเครื่องตัวเองชั่วคราว มันจะหาจาก streamlit secrets ก่อน)
+if "GEMINI_API_KEY" in st.secrets:
+    api_key = st.secrets["GEMINI_API_KEY"]
+else:
+    # เผื่อเอาไว้กรณีคุณ Bank ยังรันบนเครื่องตัวเองและไม่ได้ตั้งค่า Secrets
+    api_key = st.sidebar.text_input("ใส่ Google Gemini API Key สำหรับเทสบนเครื่อง:", type="password")
+
+user_input = st.text_area("✍️ พิมพ์สิ่งที่คุณต้องการถามหรืออยากให้ AI ช่วย (เช่น: อยากปลูกผักชีในบ้าน):")
+
+if st.button("🚀 รันระบบแปลงร่าง AI"):
+    if not api_key:
+        st.warning("⚠️ ไม่พบ API Key กรุณาตั้งค่าระบบหลังบ้านก่อนใช้งาน")
+    elif not user_input.strip():
+        st.error("⚠️ กรุณาพิมพ์ข้อความเพื่อถาม AI")
+    else:
+        # ใช้โมเดลตระกูล 2.5/2.0 เป็นมาตรฐานหลัก
+        models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash']
+        client = genai.Client(api_key=api_key)
+        
+        selected_model = None
+        for model_name in models_to_try:
+            try:
+                client.models.generate_content(
+                    model=model_name,
+                    contents="Hi",
+                )
+                selected_model = model_name
+                break
+            except Exception:
+                continue
+        
+        if not selected_model:
+            st.error("❌ ไม่สามารถเชื่อมต่อกับโมเดลได้ กรุณาเช็กว่า API Key ถูกต้องหรือไม่")
+        else:
+            with st.spinner(f"🧠 AI กำลังวิเคราะห์และแปลงร่างเป็นผู้เชี่ยวชาญ..."):
+                try:
+                    router_prompt = f"""
+                    คุณคือ AI ผู้เชี่ยวชาญด้าน Prompt Engineering และ Intent Classification
+                    หน้าที่ของคุณคือ:
+                    1. วิเคราะห์ว่าข้อความของผู้ใช้ต่อไปนี้ เกี่ยวข้องกับสาขาวิชาหรืออาชีพผู้เชี่ยวชาญด้านใดมากที่สุด
+                    2. นำข้อความดิบของผู้ใช้ไปเขียนใหม่ (Prompt Expansion) ให้กลายเป็นพรอมต์ที่สมบูรณ์ มีประสิทธิภาพสูงสุด มีโครงสร้างชัดเจน
+                    
+                    ข้อความดิบของผู้ใช้: "{user_input}"
+                    
+                    ให้ตอบกลับในรูปแบบ JSON เท่านั้น ห้ามมีคำอธิบายอื่นนอกเหนือจากโครงสร้างนี้:
+                    {{
+                        "persona": "ระบุบทบาทผู้เชี่ยวชาญที่เหมาะสมที่สุด",
+                        "optimized_prompt": "เขียนพรอมต์ใหม่ที่ขยายความและสมบูรณ์แบบที่สุด"
+                    }}
+                    """
+                    
+                    response = client.models.generate_content(
+                        model=selected_model,
+                        contents=router_prompt,
+                        config=types.GenerateContentConfig(response_mime_type="application/json")
+                    )
+                    
+                    result = json.loads(response.text)
+                    persona = result.get("persona")
+                    optimized_prompt = result.get("optimized_prompt")
+                    
+                    st.success("✨ แปลงร่างสำเร็จ!")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.info(f"🧙‍♂️ **ร่างผู้เชี่ยวชาญที่ใช้:**\n\n{persona}")
+                    with col2:
+                        st.warning(f"📝 **พรอมต์ที่ปรับแต่งใหม่:**\n\n{optimized_prompt}")
+                    
+                    st.write("---")
+                    
+                    with st.spinner(f"💬 กำลังส่งต่อให้ {persona} สร้างคำตอบที่ดีที่สุด..."):
+                        final_response = client.models.generate_content(
+                            model=selected_model,
+                            contents=optimized_prompt,
+                            config=types.GenerateContentConfig(
+                                system_instruction=f"คุณคือผู้เชี่ยวชาญในบทบาท: {persona} จงตอบคำถามต่อไปนี้อย่างมืออาชีพ ละเอียด เป็นขั้นตอน และอ่านง่ายที่สุด"
+                            )
+                        )
+                        
+                        st.subheader("🎯 คำตอบสุดท้ายจาก AI ผู้เชี่ยวชาญ:")
+                        st.markdown(final_response.text)
+                        
+                except Exception as e:
+                    st.error(f"เกิดข้อผิดพลาดในการรันระบบ: {e}")
