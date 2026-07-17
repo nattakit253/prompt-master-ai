@@ -114,7 +114,7 @@ remaining_quota = max(0, MAX_QUOTA_PER_DAY - used_today)
 # ----------------- 🖥️ หน้าตาเว็บหลัก (Clean & Beautiful UI) -----------------
 
 # แถบด้านบนแสดงไตเติ้ลสวย ๆ ไล่สี
-st.markdown("<div class='main-title'>🧙‍♂️ Prompt Master AI</div>", unsafe_allow_html=True)
+st.markdown("<div class='main-title'>Prompt Master</div>", unsafe_allow_html=True)
 st.markdown("<div class='subtitle'>แปลงข้อความธรรมดา ให้เป็นคำตอบจากผู้เชี่ยวชาญระดับมืออาชีพในพริบตา</div>", unsafe_allow_html=True)
 
 # 📊 หลอดพลังแสดงสถานะโควตาวันนี้แบบเรียลไทม์ สะอาดตา เข้าใจง่ายมาก
