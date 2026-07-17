@@ -6,18 +6,81 @@ import streamlit as st
 from google import genai
 from google.genai import types
 
-# 1. ตั้งค่าหน้าจอหน้าเว็บ
+# 1. ตั้งค่าหน้าจอหน้าเว็บและดีไซน์ธีม
 st.set_page_config(
     page_title="Prompt Master AI",
     page_icon="🧙‍♂️",
-    layout="wide"
+    layout="centered"  # ปรับเป็น centered เพื่อให้โฟกัสที่เนื้อหาตรงกลาง ไม่กระจายซ้ายขวาเกินไป
 )
 
-# ----------------- 📦 ระบบฐานข้อมูลโควตาขนาดเล็ก (File-based DB) -----------------
+# 🎨 เพิ่ม CSS เพื่อตกแต่งอินเตอร์เฟสให้หรูหรา น่าใช้งาน ทันสมัย
+st.markdown("""
+    <style>
+    /* ตั้งค่าฟอนต์และการจัดวางหลัก */
+    .main-title {
+        font-size: 3rem;
+        font-weight: 800;
+        text-align: center;
+        background: linear-gradient(45deg, #2563EB, #7C3AED);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 5px;
+    }
+    .subtitle {
+        font-size: 1.2rem;
+        text-align: center;
+        color: #4B5563;
+        margin-bottom: 35px;
+    }
+    
+    /* ปรับแต่งกล่องแสดงขั้นตอนการทำงานเบื้องหลัง (Behind the Scenes) */
+    .step-box-left {
+        background-color: #EFF6FF;
+        border-left: 5px solid #2563EB;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+    }
+    .step-box-right {
+        background-color: #F5F3FF;
+        border-left: 5px solid #7C3AED;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+    }
+    
+    /* ปรับแต่งกล่องคำตอบสุดท้าย */
+    .answer-container {
+        background-color: #F9FAFB;
+        border: 1px solid #E5E7EB;
+        border-radius: 12px;
+        padding: 25px;
+        margin-top: 20px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+    
+    /* ลบแถบสีแดงของปุ่มรันและปรับแต่ง */
+    .stButton>button {
+        background: linear-gradient(45deg, #2563EB, #7C3AED);
+        color: white;
+        font-weight: bold;
+        padding: 12px 24px;
+        border-radius: 8px;
+        border: none;
+        transition: all 0.3s ease;
+    }
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# ----------------- 📦 ระบบจัดการโควตาข้อมูลจริง (File-based DB) -----------------
 DB_FILE = "quota_db.json"
+MAX_QUOTA_PER_DAY = 150  # ตั้งค่าคงที่โควตาสูงสุดของระบบสายฟรีที่วันละ 150 ครั้ง
 
 def load_quota():
-    """โหลดข้อมูลโควตาและวันที่อัปเดตล่าสุดจากไฟล์"""
     today_str = datetime.now().strftime("%Y-%m-%d")
     default_data = {"date": today_str, "used_today": 0}
     
@@ -27,7 +90,7 @@ def load_quota():
     try:
         with open(DB_FILE, "r") as f:
             data = json.load(f)
-            # ถ้าระบบข้ามวันใหม่แล้ว ให้รีเซ็ตจำนวนการใช้งานกลับเป็น 0 อัตโนมัติ
+            # ข้ามวันใหม่ รีเซ็ตโควตากลับเป็น 0 ของวันนั้นๆ อัตโนมัติ
             if data.get("date") != today_str:
                 return default_data
             return data
@@ -35,120 +98,91 @@ def load_quota():
         return default_data
 
 def save_quota(used_today):
-    """บันทึกข้อมูลการใช้งานปัจจุบันลงไฟล์"""
     today_str = datetime.now().strftime("%Y-%m-%d")
     data = {"date": today_str, "used_today": used_today}
     try:
         with open(DB_FILE, "w") as f:
             json.dump(data, f)
     except Exception as e:
-        st.error(f"ไม่สามารถบันทึกข้อมูลโควตาได้: {e}")
+        st.error(f"ไม่สามารถอัปเดตยอดโควตาได้: {e}")
 
-# โหลดข้อมูลโควตาเริ่มต้น
+# โหลดโควตาข้อมูลจริง ณ วินาทีนั้นขึ้นมาแสดง
 quota_data = load_quota()
 used_today = quota_data["used_today"]
+remaining_quota = max(0, MAX_QUOTA_PER_DAY - used_today)
 
-# ----------------- ⚙️ SIDEBAR CONFIG -----------------
-with st.sidebar:
-    st.image("https://img.icons8.com/fluent/96/artificial-intelligence.png", width=60)
-    st.header("⚙️ แผงควบคุมระบบ (Admin)")
-    
-    # ดึง API Key จาก Secrets หลังบ้าน
+# ----------------- 🖥️ หน้าตาเว็บหลัก (Clean & Beautiful UI) -----------------
+
+# แถบด้านบนแสดงไตเติ้ลสวย ๆ ไล่สี
+st.markdown("<div class='main-title'>🧙‍♂️ Prompt Master AI</div>", unsafe_allow_html=True)
+st.markdown("<div class='subtitle'>แปลงข้อความธรรมดา ให้เป็นคำตอบจากผู้เชี่ยวชาญระดับมืออาชีพในพริบตา</div>", unsafe_allow_html=True)
+
+# 📊 หลอดพลังแสดงสถานะโควตาวันนี้แบบเรียลไทม์ สะอาดตา เข้าใจง่ายมาก
+progress_percentage = min(1.0, used_today / MAX_QUOTA_PER_DAY)
+st.progress(
+    progress_percentage, 
+    text=f"🔋 โควตาฟรีที่เหลือของระบบวันนี้: {remaining_quota} ครั้ง (ใช้ไปแล้ว {used_today} จากทั้งหมด {MAX_QUOTA_PER_DAY} ครั้ง)"
+)
+
+st.write("")
+
+# กล่องรับข้อความดีไซน์คลีน
+user_input = st.text_area(
+    "✍️ พิมพ์สิ่งที่คุณต้องการถามหรือให้ช่วย (สั้น ๆ หรือคิดอะไรได้พิมพ์ใส่มาได้เลย):", 
+    placeholder="ตัวอย่างเช่น: 'อยากปลูกผักชีในบ้าน' หรือ 'ช่วยเขียนโพสต์ขายเคสไอโฟนให้หน่อย'",
+    height=120
+)
+
+st.write("")
+
+# ปุ่มรันดีไซน์สไตล์ Startup ไล่เฉดสีสวยงาม
+if st.button("🚀 รันระบบแปลงร่าง AI และหาคำตอบ"):
     raw_api_key = st.secrets.get("GEMINI_API_KEY", "")
-    
-    # 🎛️ สไลเดอร์ปรับจำกัดโควตาต่อวัน (คุณ Bank ปรับเพิ่มลดได้เองเลย)
-    max_quota_allowed = st.slider(
-        "🎯 จำกัดจำนวนการใช้งานของเว็บนี้ต่อวัน:", 
-        min_value=10, 
-        max_value=500, 
-        value=100,  # ค่าเริ่มต้นให้ใช้ได้วันละ 100 ครั้ง
-        step=10,
-        help="ตั้งค่าจำนวนครั้งสูงสุดที่อนุญาตให้คนทั่วไปเข้ามากดใช้งานเว็บนี้ร่วมกันในแต่ละวัน"
-    )
-    
-    # คำนวณจำนวนโควตาที่เหลืออยู่จริง
-    remaining_quota = max(0, max_quota_allowed - used_today)
-    
-    st.write("---")
-    st.markdown("### 📊 สถานะการใช้งานวันนี้")
-    st.metric(label="✅ ใช้ไปแล้ววันนี้", value=f"{used_today} ครั้ง")
-    st.metric(label="🔑 โควตาที่เหลืออยู่", value=f"{remaining_quota} ครั้ง")
-    
-    if st.button("🔄 รีเซ็ตการใช้งานวันนี้กลับเป็น 0"):
-        save_quota(0)
-        st.success("รีเซ็ตโควตาเรียบร้อย!")
-        time.sleep(1)
-        st.rerun()
-
-# ----------------- MAIN INTERFACE -----------------
-st.title("🧙‍♂️ Prompt Master AI (Free Tier Only)")
-st.write("เปลี่ยนข้อความธรรมดาของคุณ ให้กลายเป็นคำตอบระดับมืออาชีพด้วยระบบ AI Expert Router")
-st.write("---")
-
-# แสดงแถบพลังโควตาหน้าจอหลักให้คนใช้งานเห็นแบบสวยงาม
-progress_percentage = min(1.0, used_today / max_quota_allowed)
-st.progress(progress_percentage, text=f"📊 โควตาของระบบวันนี้: ใช้ไปแล้ว {used_today} / {max_quota_allowed} ครั้ง (เหลือให้ใช้งานได้อีก {remaining_quota} ครั้ง)")
-
-user_input = st.text_area("✍️ พิมพ์สิ่งที่คุณต้องการถามหรืออยากให้ AI ช่วย (เช่น: อยากปลูกผักชีในบ้าน):")
-
-if st.button("🚀 รันระบบแปลงร่าง AI"):
     api_key_clean = raw_api_key.strip().replace('"', '').replace("'", "") if raw_api_key else None
     
     if not api_key_clean:
-        st.warning("⚠️ ไม่พบ API Key กรุณาตั้งค่าระบบหลังบ้านก่อนใช้งาน")
+        st.warning("⚠️ ไม่พบ API Key บนระบบหลังบ้าน กรุณาตั้งค่าความลับบนคลาวด์ก่อนใช้งานครับ")
     elif not user_input.strip():
-        st.error("⚠️ กรุณาพิมพ์ข้อความเพื่อถาม AI")
-    # 🚫 ดักตรวจเช็กก่อนว่าโควตาของวันนี้เต็มหรือยัง
+        st.error("⚠️ กรุณาพิมพ์ข้อความอธิบายความต้องการของคุณก่อนนะครับ")
+    # ดักโควตารายวันเต็มจริง
     elif remaining_quota <= 0:
-        st.error(f"🚨 ขออภัยด้วยครับ! โควตาการใช้งานของเว็บไซต์ที่แอดมินจำกัดไว้ ({max_quota_allowed} ครั้ง/วัน) เต็มเรียบร้อยแล้วในวันนี้")
-        st.info("💡 แอดมินสามารถปรับเพิ่มโควตาที่แผงควบคุมด้านซ้าย หรือกรุณากลับมาใช้งานใหม่อีกครั้งในวันพรุ่งนี้ครับ ระบบจะรีเซ็ตให้ใหม่ตอนเที่ยงคืน")
+        st.error(f"🚨 ขออภัยด้วยครับ! โควตาการใช้งานของวันนี้เต็มเรียบร้อยแล้ว ({MAX_QUOTA_PER_DAY}/{MAX_QUOTA_PER_DAY} ครั้ง)")
+        st.info("💡 สิทธิ์ใช้งานจะรีเซ็ตอัตโนมัติเมื่อขึ้นวันใหม่ ตอนเที่ยงคืนตรงครับ รบกวนคุณ Bank และเพื่อน ๆ กลับมาเล่นกันใหม่ในวันพรุ่งนี้นะครับ")
     else:
-        # รายชื่อโมเดลฟรีทั้งหมดของ Google
-        models_to_try = [
-            'gemini-2.5-flash', 
-            'gemini-2.0-flash', 
-            'gemini-1.5-flash',
-            'gemini-1.5-pro'
-        ]
-        
+        # โมเดลหลักที่ใช้เชื่อมต่อ
+        models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash']
         client = genai.Client(api_key=api_key_clean)
         selected_model = None
-        error_logs = []
         
-        with st.spinner("🧠 กำลังค้นหาช่องทางและเชื่อมต่อสมองกล AI..."):
+        with st.spinner("🧠 กำลังเชื่อมต่อเครือข่าย AI..."):
             for model_name in models_to_try:
                 try:
-                    client.models.generate_content(
-                        model=model_name,
-                        contents="Hi"
-                    )
+                    client.models.generate_content(model=model_name, contents="Hi")
                     selected_model = model_name
                     break
-                except Exception as e:
-                    error_logs.append(f"- {model_name}: {str(e)}")
+                except Exception:
                     continue
         
-        # กรณีสิทธิ์ฟรีฝั่ง API โดนล็อกชั่วคราว (Rate Limit 429)
+        # กรณีสิทธิ์ API ฟรีฝั่งคลาวด์เต็ม (Rate Limit 429)
         if not selected_model:
-            st.error("❌ ขออภัยด้วยครับ! ขณะนี้โควตาฟรีของทุกโมเดลในบัญชีของคุณเต็มชั่วคราวเนื่องจากมีการใช้งานหนาแน่น")
-            st.info("💡 ระบบกำลังทำการจำกัดเวลาคูลดาวน์เพื่อรีเซ็ตสิทธิ์ฟรีให้คุณอัตโนมัติ กรุณารอสักครู่...")
+            st.error("❌ ขออภัยด้วยครับ! ขณะนี้ตัวเชื่อมต่อฟรีของโมเดลทั้งหมดเต็มชั่วคราวเนื่องจากมีการใช้งานหนาแน่น")
+            st.info("💡 ระบบกำลังทำการเปิดคูลดาวน์สิทธิ์ให้โดยอัตโนมัติ รบกวนรอสักครู่และห้ามปิดหน้าต่างนี้...")
             
             countdown_placeholder = st.empty()
             for seconds_left in range(30, -1, -1):
                 if seconds_left > 0:
                     countdown_placeholder.metric(
-                        label="⏳ ระบบจะพร้อมใช้งานและรีเฟรชหน้าเว็บใหม่ในอีก", 
+                        label="⏳ ระบบจะพร้อมรันคำถามใหม่และรีโหลดหน้าจอในอีก", 
                         value=f"{seconds_left} วินาที"
                     )
                     time.sleep(1)
                 else:
-                    countdown_placeholder.success("🔄 กำลังรีเฟรชหน้าเว็บใหม่อัตโนมัติ...")
+                    countdown_placeholder.success("🔄 กำลังรีเฟรชหน้าต่างใหม่อัตโนมัติ...")
                     time.sleep(1)
-            
             st.rerun()
             
         else:
-            with st.spinner(f"🧙‍♂️ ใช้โมเดล {selected_model} กำลังวิเคราะห์และแปลงร่างเป็นผู้เชี่ยวชาญ..."):
+            with st.spinner("🧙‍♂️ กำลังวิเคราะห์เจตนาและเตรียมแปลงร่างเป็นผู้เชี่ยวชาญ..."):
                 try:
                     router_prompt = f"""
                     คุณคือ AI ผู้เชี่ยวชาญด้าน Prompt Engineering และ Intent Classification
@@ -175,16 +209,30 @@ if st.button("🚀 รันระบบแปลงร่าง AI"):
                     persona = result.get("persona")
                     optimized_prompt = result.get("optimized_prompt")
                     
-                    st.success("✨ แปลงร่างสำเร็จ!")
+                    # 🛡️ ส่วนโชว์ผลลัพธ์ขั้นตอนการทำงานแบบดีไซน์กล่องสวยหรู สะอาดตา
+                    st.write("---")
+                    st.markdown("### ⚙️ ขั้นตอนการประมวลผลเบื้องหลัง (Behind the Scenes)")
+                    
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.info(f"🧙‍♂️ **ร่างผู้เชี่ยวชาญที่ใช้:**\n\n{persona}")
+                        st.markdown(f"""
+                            <div class='step-box-left'>
+                                <h4 style='color: #1E40AF; margin-top: 0;'>🧙‍♂️ AI แปลงร่างเป็น:</h4>
+                                <p style='font-size: 1.1rem; font-weight: bold; color: #1E3A8A; margin: 0;'>{persona}</p>
+                            </div>
+                        """, unsafe_allow_html=True)
                     with col2:
-                        st.warning(f"📝 **พรอมต์ที่ปรับแต่งใหม่:**\n\n{optimized_prompt}")
+                        st.markdown(f"""
+                            <div class='step-box-right'>
+                                <h4 style='color: #5B21B6; margin-top: 0;'>📝 เรียบเรียงพรอมต์ใหม่ให้เสร็จสิ้น:</h4>
+                                <p style='font-size: 0.95rem; color: #4C1D95; margin: 0; font-style: italic;'>"{optimized_prompt}"</p>
+                            </div>
+                        """, unsafe_allow_html=True)
                     
-                    st.write("---")
+                    st.write("")
                     
-                    with st.spinner(f"💬 กำลังส่งต่อให้ {persona} สร้างคำตอบที่ดีที่สุด..."):
+                    # 🎯 ส่วนโชว์ผลคำตอบจากผู้เชี่ยวชาญแบบเด่นและคลีน
+                    with st.spinner(f"💬 กำลังส่งต่อให้ {persona} จัดทำคำตอบระดับมืออาชีพ..."):
                         final_response = client.models.generate_content(
                             model=selected_model,
                             contents=optimized_prompt,
@@ -193,11 +241,14 @@ if st.button("🚀 รันระบบแปลงร่าง AI"):
                             )
                         )
                         
-                        st.subheader("🎯 คำตอบสุดท้ายจาก AI ผู้เชี่ยวชาญ:")
+                        # ครอบคำตอบด้วยกล่องดีไซน์หรูแยกส่วนชัดเจน
+                        st.markdown("<div class='answer-container'>", unsafe_allow_html=True)
+                        st.subheader(f"🎯 คำตอบสุดท้ายจาก {persona}:")
                         st.markdown(final_response.text)
+                        st.markdown("</div>", unsafe_allow_html=True)
                         
-                        # 📈 เมื่อตอบสำเร็จเรียบร้อย ให้บวกยอดการใช้งานจริงสะสมเพิ่มขึ้น 1 ครั้ง และเซฟลงฐานข้อมูลไฟล์
+                        # 📈 ตอบสำเร็จอัปเดตยอดโควตาจริงหักออก 1 ครั้งลงไฟล์
                         save_quota(used_today + 1)
                         
                 except Exception as e:
-                    st.error(f"เกิดข้อผิดพลาดระหว่างการทำงานของระบบ: {e}")
+                    st.error(f"เกิดข้อผิดพลาดในการประมวลผลระบบ: {e}")
